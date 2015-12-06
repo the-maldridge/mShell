@@ -25,7 +25,7 @@ typedef struct {
 
 void shell_loop();
 char* shell_getline();
-Command* shell_splitLine(char*);
+Pipeline* shell_splitLine(char*);
 char** split_on_token(char*, char*);
 char* helper_get_token_after(char*, char*);
 char* trim(char*);
@@ -60,30 +60,35 @@ char* shell_getline() {
   return line;
 }
 
-Command* shell_splitLine(char* line) {
-  Command* cmds = NULL;
-  Command command;
+Pipeline* shell_splitLine(char* line) {
+  int numPipelines = 0;
+  int pipelineBufferSize = 1;
+  Pipeline pipeline;
+  Pipeline* pipelines = malloc(pipelineBufferSize * sizeof(Pipeline*));
+
   printf("Got line: %s", line);
 
   //seperate the pipelines from each other
   //this way multiple lines split by ';' work
-  char** pipelines = split_on_token(line, ";");
+  char** pipelineStr = split_on_token(line, ";");
 
   int i;
-  for(i=0; pipelines[i] != NULL; i++) {
-    char** executables = NULL;
-    char** args = NULL;
+  for(i=0; pipelineStr[i] != NULL; i++) {
+    int numCommands = 0;
+    int commandBufferSize = 5;
+    Command* cmds = malloc(commandBufferSize*sizeof(Command*));
+    Command command;
     
     //check if this command is anything more than a newline
-    if(pipelines[i][0] == '\n') {
+    if(pipelineStr[i][0] == '\n') {
       //was just a newline, continue with no action
       continue;
     }
     //first we work on individual jobs
-    printf("pipeline: %s\n", pipelines[i]);
+    printf("pipeline: %s\n", pipelineStr[i]);
 
     //get a list of executable portions of the pipeline
-    executables = split_on_token(pipelines[i], "|");
+    char** executables = split_on_token(pipelineStr[i], "|");
 
     //at this point we can iterate on executables and process
     //specific options for redirection and options handling
@@ -110,8 +115,9 @@ Command* shell_splitLine(char* line) {
 	command.infname = helper_get_token_after(executables[j], "<");
       }
 
+
       //at this point we can finally tokenize the arguments
-      args = split_on_token(executables[j], " ");
+      char** args = split_on_token(executables[j], " ");
       command.cmd = args[0];
 
       char** argsTmp = args;;
@@ -119,11 +125,17 @@ Command* shell_splitLine(char* line) {
       int bufsize = 64;
       command.args = malloc(bufsize * sizeof(char*));
       int k;
+
+      //we have to iterate here instead of a direct copy because some
+      //file redirection arguments need to be discarded since they are
+      //stored seperately in the command struct.
       for(k=0; args[k] != NULL; k++) {
-	printf("outer loop\n");
 	if(k>bufsize) {
+	  //oops more args than we thought, realloc accordingly...
+	  bufsize += 64;
 	  command.args = realloc(command.args, bufsize * sizeof(char*));
 	  if(!command.args) {
+	    //realloc failed, bail out now!
 	    fprintf(stderr, "mShell: Couldn't expand argument buffer");
 	  }
 	}
@@ -132,12 +144,41 @@ Command* shell_splitLine(char* line) {
 	  //we're at a redirection argument, fast forward
 	  argsTmp = argsTmp+2;
 	} else {
+	  //normal argument, add to the buffer
 	  command.args[k] = arg;
 	}
       }
+      //at this point we have a fully built command and can add it to the pipeline
+      cmds[numCommands] = command;
+      numCommands++;
+      //the now normal buffer expansion checks
+      if(numCommands > commandBufferSize) {
+	commandBufferSize += 5; //add space for 5 more
+	cmds = realloc(cmds, commandBufferSize * sizeof(Command*));
+	if(!cmds) {
+	  //this time its basically unrecoverable, so we notify FATAL status
+	  fprintf(stderr, "mShell: FATAL ERROR - Could not expand command buffer");
+	}
+      }
+    }
+    //assign our command pointer so we can get it back
+    pipeline.cmd = cmds;
+    pipeline.length = numCommands;
+
+    pipelines[numPipelines] = pipeline;
+    numPipelines++;
+
+    //once more we grow the buffer if needed
+    if(numPipelines > pipelineBufferSize) {
+      pipelineBufferSize += 2;
+      pipelines = realloc(pipelines, pipelineBufferSize * sizeof(Pipeline*));
+      if(!pipelines) {
+	//failed to realloc
+	fprintf(stderr, "mShell: FATAL ERROR - Failed to expand the pipeline buffer");
+      }
     }
   }
-  return cmds;
+  return pipelines;
 }
 
 char** split_on_token(char* line, char* stoken) {
