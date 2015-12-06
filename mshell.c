@@ -23,12 +23,18 @@ typedef struct {
   int length;
 } Pipeline;
 
+typedef struct {
+  Pipeline* pipelines;
+  int numPipeLines;
+} ShellContext;
+
 void shell_loop();
 char* shell_getline();
-Pipeline* shell_splitLine(char*);
+ShellContext* shell_splitLine(char*);
 char** split_on_token(char*, char*);
 char* helper_get_token_after(char*, char*);
 char* trim(char*);
+void debug_printPipelines(ShellContext*);
 
 int main() {
   printf("Welcome to mShell\n");
@@ -44,10 +50,11 @@ void shell_loop() {
 
   //get the data from the line
   char* line = shell_getline();
-  printf(line);
 
   //pase the line
-  shell_splitLine(line);
+  ShellContext* context = shell_splitLine(line);
+
+  debug_printPipelines(context);
 }
 
 char* shell_getline() {
@@ -60,13 +67,11 @@ char* shell_getline() {
   return line;
 }
 
-Pipeline* shell_splitLine(char* line) {
+ShellContext* shell_splitLine(char* line) {
   int numPipelines = 0;
   int pipelineBufferSize = 1;
   Pipeline pipeline;
   Pipeline* pipelines = malloc(pipelineBufferSize * sizeof(Pipeline*));
-
-  printf("Got line: %s", line);
 
   //seperate the pipelines from each other
   //this way multiple lines split by ';' work
@@ -78,15 +83,13 @@ Pipeline* shell_splitLine(char* line) {
     int commandBufferSize = 5;
     Command* cmds = malloc(commandBufferSize*sizeof(Command*));
     Command command;
-    
+
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
       //was just a newline, continue with no action
       continue;
     }
     //first we work on individual jobs
-    printf("pipeline: %s\n", pipelineStr[i]);
-
     //get a list of executable portions of the pipeline
     char** executables = split_on_token(pipelineStr[i], "|");
 
@@ -94,25 +97,29 @@ Pipeline* shell_splitLine(char* line) {
     //specific options for redirection and options handling
     int j;
     for(j=0; executables[j] != NULL; j++) {
-      printf("Exec %i of pipeline %i: %s\n", j, i, executables[j]);
-
       //we now need to know if there's redirection going on
-      if(strstr(executables[j], ">") != NULL) {
-	//output will create/overwrite a file
-	command.rdrstdout = true;
-	command.outfmode = OVERWRITE;
-	command.outfname = helper_get_token_after(executables[j], ">");
-      } else if(strstr(executables[j], ">>") != NULL) {
+      if(strstr(executables[j], ">>") != NULL) {
 	//output will create/append a file
 	command.rdrstdout = true;
+	command.stdout2file = true;
 	command.outfmode = APPEND;
 	command.outfname = helper_get_token_after(executables[j], ">>");
+      } else if(strstr(executables[j], ">") != NULL) {
+	//output will create/overwrite a file
+	command.rdrstdout = true;
+	command.stdout2file = true;
+	command.outfmode = OVERWRITE;
+	command.outfname = helper_get_token_after(executables[j], ">");
+      } else {
+	command.rdrstdout = false;
       }
 
       if(strstr(executables[j], "<") != NULL) {
 	//input will implicitly come from a file
 	command.rdrstdin = true;
 	command.infname = helper_get_token_after(executables[j], "<");
+      } else {
+	command.rdrstdin = false;
       }
 
 
@@ -178,7 +185,12 @@ Pipeline* shell_splitLine(char* line) {
       }
     }
   }
-  return pipelines;
+
+  ShellContext context;
+  ShellContext* contextPtr = &context;
+  context.pipelines = pipelines;
+  context.numPipeLines = numPipelines;
+  return contextPtr;
 }
 
 char** split_on_token(char* line, char* stoken) {
@@ -220,14 +232,22 @@ char* helper_get_token_after(char* toSplit, char* anchor) {
   //the token we want is in the second half
   split2 = split_on_token(splitLine[1], " ;-|");
 
-  //necessarily, it is the first thing in the second split
-  token = split2[0];
+  //if split2 isn't null, then the filename is the 0th line
+  //from the second split, otherwise, its the first split's
+  //result trimmed of whitespace
+  if(split2 != NULL) {
+    token = strdup(split2[0]);
+  } else {
+    token = trim(splitLine[1]);
+  }
 
   //free up the split memory
   free(splittableCopy);
   free(splitLine);
   free(split2);
 
+
+  printf("filename: %s\n", token);
   //return the requested token
   return token;
 }
@@ -246,4 +266,59 @@ char* trim(char* str) {
   }
   
   return strndup(beginning, end-beginning+1);
+}
+
+void debug_printPipelines(ShellContext* context) {
+  int i, j, k;
+  Pipeline* pipelines = context->pipelines;
+  for(i = 0; i<context->numPipeLines; i++) {
+    printf("Pipeline: %i\n", i);
+    printf("length: %i\n", pipelines[i].length);
+    for(j = 0; j<pipelines[i].length; j++) {
+      printf("\tCommand: %s\n", pipelines[i].cmd[j].cmd);
+
+      //print out the stdin redirected status
+      printf("\t\tstdin:\n");
+      if(pipelines[i].cmd[j].rdrstdin) {
+	printf("\t\t\tStatus: Redirected\n");
+	if(pipelines[i].cmd[j].file2stdin){
+	  printf("\t\t\tSource: File\n");
+	  printf("\t\t\tFile: %s\n", pipelines[i].cmd[j].infname);
+	} else {
+	  printf("\t\t\tSource: Pipeline\n");
+	}
+      } else {
+	printf("\t\t\tStatus: Not Redirected\n");
+      }
+
+      //print out the stdout redirected status
+      printf("\t\tstdout:\n");
+      if(pipelines[i].cmd[j].rdrstdout) {
+	printf("\t\t\tStatus: Redirected\n");
+	if(pipelines[i].cmd[j].stdout2file) {
+	  printf("\t\t\tDestination: File\n");
+	  printf("\t\t\tFile: %s\n", pipelines[i].cmd[j].outfname);
+	  if(pipelines[i].cmd[j].outfmode == APPEND) {
+	    printf("\t\t\tMode: Append\n");
+	  } else {
+	    printf("\t\t\tMode: Overwrite\n");
+	  }
+	} else {
+	  printf("\t\t\tDestination: Pipeline\n");
+	}
+      } else {
+	printf("\t\t\tStatus: Not Redirected\n");
+      }
+
+      //finally print out the arguments
+      printf("\t\tArguments:\n");
+      if(pipelines[i].cmd[j].args[k] == NULL) {
+	printf("\t\t\tNo Arguments\n");
+      } else {
+	for(k = 0; pipelines[i].cmd[j].args[k] != NULL; k++) {
+	  printf("\t\t\t%s", pipelines[i].cmd[j].args[k]);
+	}
+      }
+    }
+  }
 }
