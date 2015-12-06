@@ -5,7 +5,7 @@
 
 typedef struct Commands {
   char* cmd;
-  char* args;
+  char** args;
   bool rdrstdout;
   bool rdrstdin;
   bool file2stdin;
@@ -19,7 +19,7 @@ char* shell_getline();
 Command* shell_splitLine(char*);
 char** split_on_token(char*,char*);
 
-int main(int argc, char** argv) {
+int main() {
   printf("Welcome to mShell\n");
 
   shell_loop();
@@ -44,21 +44,47 @@ char* shell_getline() {
   char *line = NULL;
 
   //getline auto alocates buffers
-  ssize_t bufsize = 0;
+  size_t bufsize = 0;
   getline(&line, &bufsize, stdin);
   return line;
 }
 
 Command* shell_splitLine(char* line) {
   Command* cmds = NULL;
-  char** jobs = NULL;
+  Command command;
+  char** pipelines = NULL;
+  char** executables = NULL;
+  char** args = NULL;
   printf("Got line: %s", line);
-  jobs = split_on_token(line, ";");
+  pipelines = split_on_token(line, ";");
 
   int i;
-  for(i=0; jobs[i] != NULL; i++) {
+  for(i=0; pipelines[i] != NULL; i++) {
+    //check if this command is anything more than a newline
+    if(pipelines[i][0] == '\n') {
+      //was just a newline, continue with no action
+      continue;
+    }
     //first we work on individual jobs
-    printf("job: %s\n", jobs[i]);
+    printf("pipeline: %s\n", pipelines[i]);
+
+    //get a list of executable portions of the pipeline
+    executables = split_on_token(pipelines[i], "|");
+
+    int j;
+    for(j=0; executables[j] != NULL; j++) {
+      printf("Exec %i of pipeline %i: %s\n", j, i, executables[j]);
+      args = split_on_token(executables[j], " ");
+      command.cmd = args[0];
+      args++;
+      command.args = args;
+      //debug all the things!!
+      printf("\tExec %i executable: %s\n", j, command.cmd);
+      int k;
+      for(k=0; command.args[k] != NULL; k++) {
+	printf("\tExec %i argument: %s\n", j, command.args[k]);
+      }
+    }
   }
   return cmds;
 }
