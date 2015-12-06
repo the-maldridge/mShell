@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra
+CFLAGS=-Wall -Wextra -O0 -g
 SOURCES=mshell.c
 EXECNAME=mShell
 
@@ -8,3 +8,6 @@ all:
 
 test: all
 	./$(EXECNAME)
+
+valgrind: all
+	valgrind ./$(EXECNAME)
