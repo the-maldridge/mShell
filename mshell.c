@@ -101,12 +101,6 @@ ShellContext* shell_splitLine(char* line) {
   int commandBufferSize = 5;
   Command** cmds = malloc(commandBufferSize*sizeof(Command*));
   for(i=0; pipelineStr[i] != NULL; i++) {
-    Command* command = malloc(sizeof(Command));
-
-    //initialize everything in that struct to avoid
-    //valgrind's dreaded "Uninitialized value"
-    memset(command, 0, sizeof(Command));
-    
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
       //was just a newline, continue with no action
@@ -120,6 +114,12 @@ ShellContext* shell_splitLine(char* line) {
     //specific options for redirection and options handling
     int j;
     for(j=0; executables[j] != NULL; j++) {
+      Command* command = malloc(sizeof(Command));
+
+      //initialize everything in that struct to avoid
+      //valgrind's dreaded "Uninitialized value"
+      memset(command, 0, sizeof(Command));
+    
       //we now need to know if there's redirection going on
       if(strstr(executables[j], ">>") != NULL) {
 	//output will create/append a file
