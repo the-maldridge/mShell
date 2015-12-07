@@ -4,10 +4,10 @@ SOURCES=mshell.c
 EXECNAME=mShell
 
 all:
-	$(CC) $(CFLAGS) $(SOURCES) -o $(EXECNAME)
+	$(CC) $(CFLAGS) $(SOURCES) -o $(EXECNAME) -lreadline -DUSE_READLINE
 
 test: all
 	./$(EXECNAME)
 
 valgrind: all
-	valgrind ./$(EXECNAME)
+	valgrind --track-origins=yes ./$(EXECNAME)

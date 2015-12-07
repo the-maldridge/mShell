@@ -4,6 +4,11 @@
 #include <stdbool.h>
 #include <ctype.h>
 
+#ifdef USE_READLINE
+#include <readline/readline.h>
+#include <readline/history.h>
+#endif
+
 typedef enum {APPEND, OVERWRITE} appendMode;
 
 typedef struct {
@@ -19,12 +24,12 @@ typedef struct {
 } Command;
 
 typedef struct {
-  Command* cmd;
+  Command** cmd;
   int length;
 } Pipeline;
 
 typedef struct {
-  Pipeline* pipelines;
+  Pipeline** pipelines;
   int numPipeLines;
 } ShellContext;
 
@@ -45,45 +50,63 @@ int main() {
 
 
 void shell_loop() {
-  //print the prompt
-  printf("> ");
-
-  //get the data from the line
-  char* line = shell_getline();
-
-  //pase the line
-  ShellContext* context = shell_splitLine(line);
-
-  debug_printPipelines(context);
+  bool exit=false;
+  while(!exit) {
+    //get the data from the line
+    char* line = shell_getline();
+    
+    //pase the line
+    ShellContext* context = shell_splitLine(line);
+    
+    debug_printPipelines(context);
+  }
 }
 
 char* shell_getline() {
   //we set this to null so that it is free-able
   char *line = NULL;
 
-  //getline auto alocates buffers
+  #ifdef USE_READLINE
+  line = readline("> ");
+  if(line && *line) {
+    //only save lines with text in them
+    add_history(line);
+  }
+  #else
+  printf("> ");
+
   size_t bufsize = 0;
   getline(&line, &bufsize, stdin);
+  #endif
+
   return line;
 }
 
 ShellContext* shell_splitLine(char* line) {
   int numPipelines = 0;
-  int pipelineBufferSize = 1;
-  Pipeline pipeline;
-  Pipeline* pipelines = malloc(pipelineBufferSize * sizeof(Pipeline*));
-
+  int pipelineBufferSize = 2;
+  Pipeline** pipelines = malloc(pipelineBufferSize * sizeof(Pipeline*));
+  Pipeline* pipeline = malloc(sizeof(Pipeline));
+  
   //seperate the pipelines from each other
   //this way multiple lines split by ';' work
   char** pipelineStr = split_on_token(line, ";");
 
-  int i;
-  for(i=0; pipelineStr[i] != NULL; i++) {
-    int numCommands = 0;
-    int commandBufferSize = 5;
-    Command* cmds = malloc(commandBufferSize*sizeof(Command*));
-    Command command;
 
+  //set up the pipeline processing loop
+  //the interior of this loop deals with single pipelines
+  int i;
+  int numCommands = 0;
+  int commandBufferSize = 5;
+  Command** cmds = malloc(commandBufferSize*sizeof(Command*));
+  for(i=0; pipelineStr[i] != NULL; i++) {
+    Command* command = malloc(sizeof(Command));
+
+    //initialize everything in that struct to avoid
+    //valgrind's dreaded "Uninitialized value"
+    memset(command, 0, sizeof(Command));
+    command->args = NULL;
+    
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
       //was just a newline, continue with no action
@@ -100,59 +123,73 @@ ShellContext* shell_splitLine(char* line) {
       //we now need to know if there's redirection going on
       if(strstr(executables[j], ">>") != NULL) {
 	//output will create/append a file
-	command.rdrstdout = true;
-	command.stdout2file = true;
-	command.outfmode = APPEND;
-	command.outfname = helper_get_token_after(executables[j], ">>");
+	command->rdrstdout = true;
+	command->stdout2file = true;
+	command->outfmode = APPEND;
+	command->outfname = helper_get_token_after(executables[j], ">>");
       } else if(strstr(executables[j], ">") != NULL) {
 	//output will create/overwrite a file
-	command.rdrstdout = true;
-	command.stdout2file = true;
-	command.outfmode = OVERWRITE;
-	command.outfname = helper_get_token_after(executables[j], ">");
+	command->rdrstdout = true;
+	command->stdout2file = true;
+	command->outfmode = OVERWRITE;
+	command->outfname = helper_get_token_after(executables[j], ">");
+      } else if(executables[j+1] != NULL) {
+	//there's another command in the pipeline after us
+	command->rdrstdout = true;
+	command->stdout2file = false;
       } else {
-	command.rdrstdout = false;
+	command->rdrstdout = false;
       }
 
       if(strstr(executables[j], "<") != NULL) {
 	//input will implicitly come from a file
-	command.rdrstdin = true;
-	command.infname = helper_get_token_after(executables[j], "<");
+	command->rdrstdin = true;
+	command->infname = helper_get_token_after(executables[j], "<");
+      } else if(j != 0) {
+	//we exist in the middle of a pipeline
+	command->rdrstdin = true;
+	command->file2stdin = false;
       } else {
-	command.rdrstdin = false;
+	command->rdrstdin = false;
       }
 
 
       //at this point we can finally tokenize the arguments
       char** args = split_on_token(executables[j], " ");
-      command.cmd = args[0];
+      command->cmd = args[0];
 
-      char** argsTmp = args;;
-      char* arg = NULL;
+      //argsTmp must start out at args+1 to miss the exec name
+      char** argsTmp = args+1;
       int bufsize = 64;
-      command.args = malloc(bufsize * sizeof(char*));
+      command->args = malloc(bufsize * sizeof(char*));
       int k;
 
       //we have to iterate here instead of a direct copy because some
       //file redirection arguments need to be discarded since they are
-      //stored seperately in the command struct.
-      for(k=0; args[k] != NULL; k++) {
+      //stored seperately in the command struct.  This loop starts at
+      //1 since the 0th argument is for the command itself
+	int copyLoc = 0;
+	for(k=0; (args[k] != NULL) && (argsTmp[copyLoc] != NULL); k++) {
 	if(k>bufsize) {
 	  //oops more args than we thought, realloc accordingly...
 	  bufsize += 64;
-	  command.args = realloc(command.args, bufsize * sizeof(char*));
-	  if(!command.args) {
+	  command->args = realloc(command->args, bufsize * sizeof(char*));
+	  if(!command->args) {
 	    //realloc failed, bail out now!
 	    fprintf(stderr, "mShell: Couldn't expand argument buffer");
 	  }
 	}
-	
-	if(strstr(argsTmp[k], "><") != NULL) {
-	  //we're at a redirection argument, fast forward
-	  argsTmp = argsTmp+2;
+
+	if(strstr(argsTmp[copyLoc], ">") != NULL) {
+	  //redirection argument, we should fast forward
+	  copyLoc += 2;
+	} else if(strstr(argsTmp[copyLoc], "<") != NULL) {
+	  //redirection argument, we should fast forward
+	  copyLoc += 2;
 	} else {
 	  //normal argument, add to the buffer
-	  command.args[k] = arg;
+	  command->args[k] = args[copyLoc];
+	  copyLoc++;
 	}
       }
       //at this point we have a fully built command and can add it to the pipeline
@@ -160,7 +197,7 @@ ShellContext* shell_splitLine(char* line) {
       numCommands++;
       //the now normal buffer expansion checks
       if(numCommands > commandBufferSize) {
-	commandBufferSize += 5; //add space for 5 more
+	commandBufferSize += numCommands*2; //add space for 5 more
 	cmds = realloc(cmds, commandBufferSize * sizeof(Command*));
 	if(!cmds) {
 	  //this time its basically unrecoverable, so we notify FATAL status
@@ -169,8 +206,8 @@ ShellContext* shell_splitLine(char* line) {
       }
     }
     //assign our command pointer so we can get it back
-    pipeline.cmd = cmds;
-    pipeline.length = numCommands;
+    pipeline->cmd = cmds;
+    pipeline->length = numCommands;
 
     pipelines[numPipelines] = pipeline;
     numPipelines++;
@@ -186,11 +223,10 @@ ShellContext* shell_splitLine(char* line) {
     }
   }
 
-  ShellContext context;
-  ShellContext* contextPtr = &context;
-  context.pipelines = pipelines;
-  context.numPipeLines = numPipelines;
-  return contextPtr;
+  ShellContext* context = malloc(sizeof(ShellContext));
+  context->pipelines = pipelines;
+  context->numPipeLines = numPipelines;
+  return context;
 }
 
 char** split_on_token(char* line, char* stoken) {
@@ -265,25 +301,28 @@ char* trim(char* str) {
     end--;
   }
   
-  return strndup(beginning, end-beginning+1);
+  char* nStr = strndup(beginning, end-beginning+1);
+  free(str);
+  return nStr;
 }
 
 void debug_printPipelines(ShellContext* context) {
   int i, j, k;
-  Pipeline* pipelines = context->pipelines;
+  Pipeline** pipelines = context->pipelines;
+  printf("Processed %i pipelines:\n", context->numPipeLines);						       
   for(i = 0; i<context->numPipeLines; i++) {
     printf("Pipeline: %i\n", i);
-    printf("length: %i\n", pipelines[i].length);
-    for(j = 0; j<pipelines[i].length; j++) {
-      printf("\tCommand: %s\n", pipelines[i].cmd[j].cmd);
+    printf("length: %i\n", pipelines[i]->length);
+    for(j = 0; j<pipelines[i]->length; j++) {
+      printf("\tCommand: %s\n", pipelines[i]->cmd[j]->cmd);
 
       //print out the stdin redirected status
       printf("\t\tstdin:\n");
-      if(pipelines[i].cmd[j].rdrstdin) {
+      if(pipelines[i]->cmd[j]->rdrstdin) {
 	printf("\t\t\tStatus: Redirected\n");
-	if(pipelines[i].cmd[j].file2stdin){
+	if(pipelines[i]->cmd[j]->file2stdin){
 	  printf("\t\t\tSource: File\n");
-	  printf("\t\t\tFile: %s\n", pipelines[i].cmd[j].infname);
+	  printf("\t\t\tFile: %s\n", pipelines[i]->cmd[j]->infname);
 	} else {
 	  printf("\t\t\tSource: Pipeline\n");
 	}
@@ -293,12 +332,12 @@ void debug_printPipelines(ShellContext* context) {
 
       //print out the stdout redirected status
       printf("\t\tstdout:\n");
-      if(pipelines[i].cmd[j].rdrstdout) {
+      if(pipelines[i]->cmd[j]->rdrstdout) {
 	printf("\t\t\tStatus: Redirected\n");
-	if(pipelines[i].cmd[j].stdout2file) {
+	if(pipelines[i]->cmd[j]->stdout2file) {
 	  printf("\t\t\tDestination: File\n");
-	  printf("\t\t\tFile: %s\n", pipelines[i].cmd[j].outfname);
-	  if(pipelines[i].cmd[j].outfmode == APPEND) {
+	  printf("\t\t\tFile: %s\n", pipelines[i]->cmd[j]->outfname);
+	  if(pipelines[i]->cmd[j]->outfmode == APPEND) {
 	    printf("\t\t\tMode: Append\n");
 	  } else {
 	    printf("\t\t\tMode: Overwrite\n");
@@ -312,11 +351,11 @@ void debug_printPipelines(ShellContext* context) {
 
       //finally print out the arguments
       printf("\t\tArguments:\n");
-      if(pipelines[i].cmd[j].args[k] == NULL) {
+      if(pipelines[i]->cmd[j]->args == NULL) {
 	printf("\t\t\tNo Arguments\n");
       } else {
-	for(k = 0; pipelines[i].cmd[j].args[k] != NULL; k++) {
-	  printf("\t\t\t%s", pipelines[i].cmd[j].args[k]);
+	for(k = 0; pipelines[i]->cmd[j]->args[k] != NULL; k++) {
+	  printf("\t\t\t%s\n", pipelines[i]->cmd[j]->args[k]);
 	}
       }
     }
