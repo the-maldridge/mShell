@@ -42,9 +42,9 @@ char** split_on_token(char*, char*);
 char* helper_get_token_after(char*, char*);
 char* trim(char*);
 void debug_printPipelines(ShellContext*);
-void shell_launchTask(ShellContext*);
-void shell_launchPipeline(Pipeline*);
-
+void shell_launch(ShellContext*);
+int shell_launch_pipeline(int length, Command** cmds);
+int shell_launch_process(int inPipe, int outPipe, Command* cmd);
 int main() {
   printf("Welcome to mShell\n");
 
@@ -67,7 +67,7 @@ void shell_loop() {
 
       //debugging
       //debug_printPipelines(context);
-      shell_launchTask(context);
+      shell_launch(context);
     }
   }
 }
@@ -237,30 +237,64 @@ ShellContext* shell_splitLine(char* line) {
   return context;
 }
 
-void shell_launchTask(ShellContext* context) {
+void shell_launch(ShellContext* context) {
   int i;
   for(i=0; i<context->numPipeLines; i++) {
-    shell_launchPipeline(context->pipelines[i]);
+    shell_launch_pipeline(context->pipelines[i]->length, context->pipelines[i]->cmd);
   }
 }
 
-void shell_launchPipeline(Pipeline* pipeline) {
-  int i;
-  for(i=0; i<pipeline->length; i++) {
-    //now for the dangerous stuff
-    int pid = fork();
-    //see I told you, now there are two of me!
-
-    if(pid==0) {
-      //child process
-      execvp(pipeline->cmd[i]->cmd, pipeline->cmd[i]->args);
-    } else {
-      //still in the parent
-      //errors? what are those...
-      int status;
-      waitpid(pid, &status, 0);
+int shell_launch_process(int inPipe, int outPipe, Command* cmdPtr) {
+  pid_t pid;
+  
+  //don't look now there's two of us!
+  if((pid=fork())==0) {
+    // child
+    if(inPipe != 0) {
+      dup2(inPipe, 0);
+      close(inPipe);
     }
+    
+    if(outPipe != 1) {
+      //parent
+      dup2(outPipe, 1);
+      close(outPipe);
+    }
+    return execvp(cmdPtr->cmd, cmdPtr->args);
   }
+  
+  return pid;
+}
+
+int shell_launch_pipeline(int length, Command** cmds) {
+  pid_t pid;
+  int in, fd[2];
+  
+  //left side of the pipe is attached to the terminal
+  in = 0;
+  
+  //right end of the pipe is special
+  int i;
+  for(i = 0; i < length - 1; ++i) {
+    pipe(fd);
+    
+    //set up the correct end of the pipe
+    shell_launch_process(in, fd[1], cmds[i]);
+    
+    //we aren't writing
+    close(fd[1]);
+    
+    //reset where in points
+    in = fd[0];
+  }
+  
+  //setup the stdin
+  if(in != 0) {
+    dup2(in, 0);
+  }
+  
+  //the right end of the pipe replaces this
+  return execvp(cmds[i]->cmd, cmds[i]->args);
 }
 
 char** split_on_token(char* line, char* stoken) {
@@ -273,12 +307,15 @@ char** split_on_token(char* line, char* stoken) {
     exit(EXIT_FAILURE);
   }
 
+  //get the first token
   token = strtok(line, stoken);
   while (token != NULL) {
+    //continue till we're out of tokens
     tokens[position] = token;
     position++;
 
     if (position >= bufsize) {
+      //realloc the buffer if we exceeded it
       bufsize += 64;
       tokens = realloc(tokens, bufsize * sizeof(char*));
       if (!tokens) {
@@ -287,8 +324,10 @@ char** split_on_token(char* line, char* stoken) {
       }
     }
 
+    //peel off the next token
     token = strtok(NULL, stoken);
   }
+  //last token is necessarily the NULL to denote end of array
   tokens[position] = NULL;
   return tokens;
 }
@@ -329,10 +368,12 @@ char* trim(char* str) {
     beginning++;
   }
 
+  //move end down to the last char unless its an empty string
   while(end >= beginning && isspace(*end)) {
     end--;
   }
   
+  //return a dup of the string
   char* nStr = strndup(beginning, end-beginning+1);
   free(str);
   return nStr;
