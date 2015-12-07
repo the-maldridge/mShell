@@ -177,7 +177,7 @@ ShellContext* shell_splitLine(char* line) {
       //stored seperately in the command struct.  This loop starts at
       //1 since the 0th argument is for the command itself
       int copyLoc = 0;
-      for(k=1; args[k] != NULL; k++) {
+      for(k=0; args[k] != NULL; k++) {
 	if(copyLoc>bufsize) {
 	  //oops more args than we thought, realloc accordingly...
 	  bufsize += 64;
@@ -247,13 +247,6 @@ void shell_launchTask(ShellContext* context) {
 void shell_launchPipeline(Pipeline* pipeline) {
   int i;
   for(i=0; i<pipeline->length; i++) {
-    printf("Planning to launch %s\n", pipeline->cmd[i]->cmd);
-    printf("\tArguments: \n");
-    int k;
-    for(k=0; pipeline->cmd[i]->args[k] != NULL; k++) {
-      printf("\t\t%s\n", pipeline->cmd[i]->args[k]);
-    }
-
     //now for the dangerous stuff
     int pid = fork();
     //see I told you, now there are two of me!
