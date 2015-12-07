@@ -55,11 +55,15 @@ void shell_loop() {
     //get the data from the line
     char* line = shell_getline();
 
-    //parse the line
-    ShellContext* context = shell_splitLine(line);
+    if(strcmp(line, "exit")==0) {
+      exit=true;
+    } else {
+      //parse the line
+      ShellContext* context = shell_splitLine(line);
 
-    //debugging
-    debug_printPipelines(context);
+      //debugging
+      debug_printPipelines(context);
+    }
   }
 }
 
