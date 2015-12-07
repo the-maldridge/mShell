@@ -54,10 +54,11 @@ void shell_loop() {
   while(!exit) {
     //get the data from the line
     char* line = shell_getline();
-    
-    //pase the line
+
+    //parse the line
     ShellContext* context = shell_splitLine(line);
-    
+
+    //debugging
     debug_printPipelines(context);
   }
 }
@@ -105,7 +106,6 @@ ShellContext* shell_splitLine(char* line) {
     //initialize everything in that struct to avoid
     //valgrind's dreaded "Uninitialized value"
     memset(command, 0, sizeof(Command));
-    command->args = NULL;
     
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
@@ -140,10 +140,12 @@ ShellContext* shell_splitLine(char* line) {
       } else {
 	command->rdrstdout = false;
       }
-
+      
       if(strstr(executables[j], "<") != NULL) {
+	printf("Got an input token\n");
 	//input will implicitly come from a file
 	command->rdrstdin = true;
+	command->file2stdin = true;
 	command->infname = helper_get_token_after(executables[j], "<");
       } else if(j != 0) {
 	//we exist in the middle of a pipeline
@@ -152,24 +154,23 @@ ShellContext* shell_splitLine(char* line) {
       } else {
 	command->rdrstdin = false;
       }
-
-
+      
+      
       //at this point we can finally tokenize the arguments
       char** args = split_on_token(executables[j], " ");
       command->cmd = args[0];
-
-      //argsTmp must start out at args+1 to miss the exec name
-      char** argsTmp = args+1;
+      
       int bufsize = 64;
       command->args = malloc(bufsize * sizeof(char*));
+      memset(command->args, 0, sizeof(bufsize * sizeof(char*)));
       int k;
-
+      
       //we have to iterate here instead of a direct copy because some
       //file redirection arguments need to be discarded since they are
       //stored seperately in the command struct.  This loop starts at
       //1 since the 0th argument is for the command itself
-	int copyLoc = 0;
-	for(k=0; (args[k] != NULL) && (argsTmp[copyLoc] != NULL); k++) {
+      int copyLoc = 0;
+      for(k=1; args[k] != NULL; k++) {
 	if(k>bufsize) {
 	  //oops more args than we thought, realloc accordingly...
 	  bufsize += 64;
@@ -179,19 +180,25 @@ ShellContext* shell_splitLine(char* line) {
 	    fprintf(stderr, "mShell: Couldn't expand argument buffer");
 	  }
 	}
-
-	if(strstr(argsTmp[copyLoc], ">") != NULL) {
+	printf("Considering argument %i: %s\n", k, args[k]);
+	if(strstr(args[k], ">") != NULL) {
 	  //redirection argument, we should fast forward
-	  copyLoc += 2;
-	} else if(strstr(argsTmp[copyLoc], "<") != NULL) {
+	  printf("Ignoring argument %i: %s\n", k, args[k]);
+	  k += 1;
+	  printf("Ignoring argument %i: %s\n", k, args[k]);
+	} else if(strstr(args[k], "<") != NULL) {
 	  //redirection argument, we should fast forward
-	  copyLoc += 2;
+	  printf("Ignoring argument %i: %s\n", k, args[k]);
+	  k += 1;
+	  printf("Ignoring argument %i: %s\n", k, args[k]);
 	} else {
 	  //normal argument, add to the buffer
-	  command->args[k] = args[copyLoc];
+	  printf("accepting argument %i: %s\n", k, args[k]);
+	  command->args[copyLoc] = args[k];
 	  copyLoc++;
 	}
       }
+      
       //at this point we have a fully built command and can add it to the pipeline
       cmds[numCommands] = command;
       numCommands++;
