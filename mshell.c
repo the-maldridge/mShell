@@ -40,6 +40,8 @@ char** split_on_token(char*, char*);
 char* helper_get_token_after(char*, char*);
 char* trim(char*);
 void debug_printPipelines(ShellContext*);
+void shell_launchTask(ShellContext*);
+void shell_launchPipeline(Pipeline*);
 
 int main() {
   printf("Welcome to mShell\n");
@@ -62,7 +64,8 @@ void shell_loop() {
       ShellContext* context = shell_splitLine(line);
 
       //debugging
-      debug_printPipelines(context);
+      //debug_printPipelines(context);
+      shell_launchTask(context);
     }
   }
 }
@@ -103,7 +106,6 @@ ShellContext* shell_splitLine(char* line) {
   int commandBufferSize = 5;
   Command** cmds = malloc(commandBufferSize*sizeof(Command*));
   for(i=0; pipelineStr[i] != NULL; i++) {
-    printf("Pipeline contains: %s\n", pipelineStr[i]);
     Pipeline* pipeline = malloc(sizeof(Pipeline));
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
@@ -146,7 +148,6 @@ ShellContext* shell_splitLine(char* line) {
       }
       
       if(strstr(executables[j], "<") != NULL) {
-	printf("Got an input token\n");
 	//input will implicitly come from a file
 	command->rdrstdin = true;
 	command->file2stdin = true;
@@ -184,20 +185,14 @@ ShellContext* shell_splitLine(char* line) {
 	    fprintf(stderr, "mShell: Couldn't expand argument buffer");
 	  }
 	}
-	printf("Considering argument %i: %s\n", k, args[k]);
 	if(strstr(args[k], ">") != NULL) {
 	  //redirection argument, we should fast forward
-	  printf("Ignoring argument %i: %s\n", k, args[k]);
 	  k += 1;
-	  printf("Ignoring argument %i: %s\n", k, args[k]);
 	} else if(strstr(args[k], "<") != NULL) {
 	  //redirection argument, we should fast forward
-	  printf("Ignoring argument %i: %s\n", k, args[k]);
 	  k += 1;
-	  printf("Ignoring argument %i: %s\n", k, args[k]);
 	} else {
 	  //normal argument, add to the buffer
-	  printf("accepting argument %i: %s\n", k, args[k]);
 	  command->args[copyLoc] = args[k];
 	  copyLoc++;
 	}
@@ -238,6 +233,20 @@ ShellContext* shell_splitLine(char* line) {
   context->pipelines = pipelines;
   context->numPipeLines = numPipelines;
   return context;
+}
+
+void shell_launchTask(ShellContext* context) {
+  int i;
+  for(i=0; i<context->numPipeLines; i++) {
+    shell_launchPipeline(context->pipelines[i]);
+  }
+}
+
+void shell_launchPipeline(Pipeline* pipeline) {
+  int i;
+  for(i=0; i<pipeline->length; i++) {
+    printf("Planning to launch %s", pipeline->cmd[i]->cmd);
+  }
 }
 
 char** split_on_token(char* line, char* stoken) {
@@ -293,8 +302,6 @@ char* helper_get_token_after(char* toSplit, char* anchor) {
   free(splitLine);
   free(split2);
 
-
-  printf("filename: %s\n", token);
   //return the requested token
   return token;
 }
