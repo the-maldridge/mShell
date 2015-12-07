@@ -91,12 +91,10 @@ ShellContext* shell_splitLine(char* line) {
   int numPipelines = 0;
   int pipelineBufferSize = 2;
   Pipeline** pipelines = malloc(pipelineBufferSize * sizeof(Pipeline*));
-  Pipeline* pipeline = malloc(sizeof(Pipeline));
   
   //seperate the pipelines from each other
   //this way multiple lines split by ';' work
   char** pipelineStr = split_on_token(line, ";");
-
 
   //set up the pipeline processing loop
   //the interior of this loop deals with single pipelines
@@ -105,6 +103,8 @@ ShellContext* shell_splitLine(char* line) {
   int commandBufferSize = 5;
   Command** cmds = malloc(commandBufferSize*sizeof(Command*));
   for(i=0; pipelineStr[i] != NULL; i++) {
+    printf("Pipeline contains: %s\n", pipelineStr[i]);
+    Pipeline* pipeline = malloc(sizeof(Pipeline));
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
       //was just a newline, continue with no action
@@ -175,7 +175,7 @@ ShellContext* shell_splitLine(char* line) {
       //1 since the 0th argument is for the command itself
       int copyLoc = 0;
       for(k=1; args[k] != NULL; k++) {
-	if(k>bufsize) {
+	if(copyLoc>bufsize) {
 	  //oops more args than we thought, realloc accordingly...
 	  bufsize += 64;
 	  command->args = realloc(command->args, bufsize * sizeof(char*));
