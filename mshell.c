@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #ifdef USE_READLINE
 #include <readline/readline.h>
@@ -245,7 +247,26 @@ void shell_launchTask(ShellContext* context) {
 void shell_launchPipeline(Pipeline* pipeline) {
   int i;
   for(i=0; i<pipeline->length; i++) {
-    printf("Planning to launch %s", pipeline->cmd[i]->cmd);
+    printf("Planning to launch %s\n", pipeline->cmd[i]->cmd);
+    printf("\tArguments: \n");
+    int k;
+    for(k=0; pipeline->cmd[i]->args[k] != NULL; k++) {
+      printf("\t\t%s\n", pipeline->cmd[i]->args[k]);
+    }
+
+    //now for the dangerous stuff
+    int pid = fork();
+    //see I told you, now there are two of me!
+
+    if(pid==0) {
+      //child process
+      execvp(pipeline->cmd[i]->cmd, pipeline->cmd[i]->args);
+    } else {
+      //still in the parent
+      //errors? what are those...
+      int status;
+      waitpid(pid, &status, 0);
+    }
   }
 }
 
