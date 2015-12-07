@@ -162,7 +162,7 @@ ShellContext* shell_splitLine(char* line) {
       
       int bufsize = 64;
       command->args = malloc(bufsize * sizeof(char*));
-      memset(command->args, 0, sizeof(bufsize * sizeof(char*)));
+      memset(command->args, 0, bufsize * sizeof(sizeof(char*)));
       int k;
       
       //we have to iterate here instead of a direct copy because some
