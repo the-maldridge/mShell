@@ -68,7 +68,11 @@ void shell_loop() {
       ShellContext* context = shell_splitLine(line);
 
       //debugging
-      //debug_printPipelines(context);
+      #ifdef MSHELL_DEBUG
+      debug_printPipelines(context);
+      #endif
+      
+      //launch the pipelines!
       shell_launch(context);
     }
   }
@@ -79,13 +83,13 @@ char* shell_getline() {
   char *line = NULL;
 
   #ifdef USE_READLINE
-  line = readline("> ");
+  line = readline("\r> ");
   if(line && *line) {
     //only save lines with text in them
     add_history(line);
   }
   #else
-  printf("> ");
+  printf("\r> ");
 
   size_t bufsize = 0;
   getline(&line, &bufsize, stdin);
@@ -311,6 +315,7 @@ int shell_launch_process(int inPipe, int outPipe, Command* cmdPtr) {
 
 int shell_launch_pipeline(int length, Command** cmds) {
   int in, fd[2];
+  pid_t pid = 0;
   
   //left side of the pipe is attached to the terminal
   in = 0;
@@ -321,7 +326,7 @@ int shell_launch_pipeline(int length, Command** cmds) {
     pipe(fd);
 
     //set up the correct end of the pipe
-    shell_launch_process(in, fd[1], cmds[i]);
+    pid = shell_launch_process(in, fd[1], cmds[i]);
     
     //we aren't writing
     close(fd[1]);
@@ -334,6 +339,10 @@ int shell_launch_pipeline(int length, Command** cmds) {
   if(in != 0) {
     dup2(in, 0);
   }
+
+  //hold until the last process finishes
+  int status=0;
+  waitpid(pid, &status, 0);
   
   //the right end of the pipe replaces this
   return 0;
