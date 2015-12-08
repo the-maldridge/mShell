@@ -68,7 +68,7 @@ void shell_loop() {
       ShellContext* context = shell_splitLine(line);
 
       //debugging
-      debug_printPipelines(context);
+      //debug_printPipelines(context);
       shell_launch(context);
     }
   }
@@ -106,10 +106,10 @@ ShellContext* shell_splitLine(char* line) {
   //set up the pipeline processing loop
   //the interior of this loop deals with single pipelines
   int i;
-  int numCommands = 0;
-  int commandBufferSize = 5;
-  Command** cmds = malloc(commandBufferSize*sizeof(Command*));
   for(i=0; pipelineStr[i] != NULL; i++) {
+    int numCommands = 0;
+    int commandBufferSize = 5;
+    Command** cmds = malloc(commandBufferSize*sizeof(Command*));
     Pipeline* pipeline = malloc(sizeof(Pipeline));
 
     if(!cmds) {
