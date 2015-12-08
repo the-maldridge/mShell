@@ -1,3 +1,0 @@
-it works but its faulting on the filename in the redirection
-
-there's also a shit-ton of undefined stuff going on in the split_line function that wasn't there before
