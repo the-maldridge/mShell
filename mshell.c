@@ -68,7 +68,7 @@ void shell_loop() {
       ShellContext* context = shell_splitLine(line);
 
       //debugging
-      //debug_printPipelines(context);
+      debug_printPipelines(context);
       shell_launch(context);
     }
   }
@@ -111,6 +111,11 @@ ShellContext* shell_splitLine(char* line) {
   Command** cmds = malloc(commandBufferSize*sizeof(Command*));
   for(i=0; pipelineStr[i] != NULL; i++) {
     Pipeline* pipeline = malloc(sizeof(Pipeline));
+
+    if(!cmds) {
+      fprintf(stderr, "mShell: Could not allocate command buffer\n");      
+    }
+
     //check if this command is anything more than a newline
     if(pipelineStr[i][0] == '\n') {
       //was just a newline, continue with no action
@@ -259,19 +264,44 @@ void shell_disown_pipeline(int length, Command** cmd) {
 
 int shell_launch_process(int inPipe, int outPipe, Command* cmdPtr) {
   pid_t pid;
-  
+
   //don't look now there's two of us!
   if((pid=fork())==0) {
     // child
-    if(inPipe != 0) {
-      dup2(inPipe, 0);
-      close(inPipe);
+
+    if(cmdPtr->rdrstdin) {
+      if(cmdPtr->file2stdin) {
+	int inFile = fileno(fopen(cmdPtr->infname, "r"));
+	dup2(inFile, 0);
+	//close(inPipe);
+      } else {
+	if(inPipe != 0) {
+	  dup2(inPipe, 0);
+	  close(inPipe);
+	}
+      }
     }
-    
-    if(outPipe != 1) {
-      //parent
-      dup2(outPipe, 1);
-      close(outPipe);
+
+    if(cmdPtr->rdrstdout) {
+      if(cmdPtr->stdout2file) {
+	if(cmdPtr->outfmode == APPEND) {
+	  //open file in append mode
+	  int outFile = fileno(fopen(cmdPtr->outfname, "a+"));
+	  dup2(outFile, 1);
+	  close(outPipe);
+	} else if(cmdPtr->outfmode == OVERWRITE) {
+	  //open file in overwrite mode
+	  int outFile = fileno(fopen(cmdPtr->outfname, "w"));
+	  dup2(outFile, 1);
+	  close(outPipe);
+	}
+      } else {
+	if(outPipe != 1) {
+	  //parent
+	  dup2(outPipe, 1);
+	  close(outPipe);
+	}
+      }
     }
     return execvp(cmdPtr->cmd, cmdPtr->args);
   }
@@ -280,7 +310,6 @@ int shell_launch_process(int inPipe, int outPipe, Command* cmdPtr) {
 }
 
 int shell_launch_pipeline(int length, Command** cmds) {
-  pid_t pid;
   int in, fd[2];
   
   //left side of the pipe is attached to the terminal
@@ -288,9 +317,9 @@ int shell_launch_pipeline(int length, Command** cmds) {
   
   //right end of the pipe is special
   int i;
-  for(i = 0; i < length - 1; ++i) {
+  for(i = 0; i < length; ++i) {
     pipe(fd);
-    
+
     //set up the correct end of the pipe
     shell_launch_process(in, fd[1], cmds[i]);
     
@@ -300,14 +329,14 @@ int shell_launch_pipeline(int length, Command** cmds) {
     //reset where in points
     in = fd[0];
   }
-  
+
   //setup the stdin
   if(in != 0) {
     dup2(in, 0);
   }
   
   //the right end of the pipe replaces this
-  return execvp(cmds[i]->cmd, cmds[i]->args);
+  return 0;
 }
 
 char** split_on_token(char* line, char* stoken) {
