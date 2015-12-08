@@ -45,6 +45,8 @@ void debug_printPipelines(ShellContext*);
 void shell_launch(ShellContext*);
 int shell_launch_pipeline(int length, Command** cmds);
 int shell_launch_process(int inPipe, int outPipe, Command* cmd);
+void shell_disown_pipeline(int length, Command** cmds);
+
 int main() {
   printf("Welcome to mShell\n");
 
@@ -240,7 +242,18 @@ ShellContext* shell_splitLine(char* line) {
 void shell_launch(ShellContext* context) {
   int i;
   for(i=0; i<context->numPipeLines; i++) {
-    shell_launch_pipeline(context->pipelines[i]->length, context->pipelines[i]->cmd);
+    shell_disown_pipeline(context->pipelines[i]->length, context->pipelines[i]->cmd);
+  }
+}
+
+void shell_disown_pipeline(int length, Command** cmd) {
+  pid_t pid = fork();
+  
+  if(pid == 0) {
+    shell_launch_pipeline(length, cmd);
+  } else {
+    int status = 0;
+    waitpid(pid, &status, 0);
   }
 }
 
